@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	quizConhecimentosGerais string = "./quiz_conhecimentos_gerais.csv"
-	quizHistoria            string = "./quiz_historia.csv"
-	quizIngles              string = "./quiz_ingles.csv"
+	quizConhecimentosGerais string = "./files/quiz_conhecimentos_gerais.csv"
+	quizHistoria            string = "./files/quiz_historia.csv"
+	quizIngles              string = "./files/quiz_ingles.csv"
 )
 
 type Question struct {
