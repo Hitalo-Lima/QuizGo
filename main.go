@@ -8,6 +8,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
+)
+
+const (
+	quizConhecimentosGerais string = "./quiz_conhecimentos_gerais.csv"
+	quizHistoria            string = "./quiz_historia.csv"
+	quizIngles              string = "./quiz_ingles.csv"
 )
 
 type Question struct {
@@ -19,6 +26,7 @@ type Question struct {
 type GameState struct {
 	Name      string
 	Points    int
+	Theme     string
 	Questions []Question
 }
 
@@ -33,14 +41,39 @@ func (g *GameState) Init() {
 	if err != nil {
 		panic("Erro ao ler o nome")
 	}
-
 	g.Name = name
 
-	fmt.Printf("Vamos ao jogo %s\n!", g.Name)
+	validOption := false
+
+	for !validOption {
+		fmt.Println("Escolha uma opção de tema para as perguntas")
+		fmt.Print("[1] Conhecimentos Gerais [2] História [3] Inglês: ")
+
+		option, err := reader.ReadString('\n')
+		if err != nil {
+			panic("Erro ao ler a opção escolhida")
+		}
+
+		switch strings.TrimSpace(option) {
+		case "1":
+			g.Theme = quizConhecimentosGerais
+			validOption = true
+		case "2":
+			g.Theme = quizHistoria
+			validOption = true
+		case "3":
+			g.Theme = quizIngles
+			validOption = true
+		default:
+			fmt.Println("Escolha uma opção válida!")
+		}
+	}
+
+	fmt.Printf("Vamos ao jogo %s!\n", strings.TrimSpace(name))
 }
 
 func (g *GameState) ProccessCSV() {
-	file, err := os.Open("./quiz.csv")
+	file, err := os.Open(g.Theme)
 	if err != nil {
 		panic("Erro ao ler arquivo csv")
 	}
@@ -50,11 +83,11 @@ func (g *GameState) ProccessCSV() {
 	reader := csv.NewReader(file)
 	records, err := reader.ReadAll()
 	if err != nil {
+		fmt.Println("erro: ", err)
 		panic("Erro ao ler csv")
 	}
 
 	for i, record := range records {
-
 		if i > 0 {
 			correctAnswer, _ := toInt(record[5])
 			question := Question{
@@ -71,41 +104,55 @@ func (g *GameState) ProccessCSV() {
 func (g *GameState) Run() {
 	// Exibir a pergunta para o usuário
 	for index, question := range g.Questions {
-		fmt.Printf("\033[34mQuestão %d: %s\033[0m\n", index+1, question.Text)
+		fmt.Printf("\033[34mQuestão %d: %s\033[0m\n\n", index+1, question.Text)
 
-		// Iterar sobre as opções que existem no game state
-		// e exibir no terminal
+		// Iterar sobre as opções e exibir no terminal
 		for pos, option := range question.Options {
 			fmt.Printf("[%d] %s\n", pos+1, option)
 		}
 
-		fmt.Println("\nDigite uma alternativa")
+		fmt.Print("\nDigite uma alternativa: ")
 
-		// Coletar a entrada do usuário
-		// Validar o caractere que foi inserido
-		// Se for inválido o usuário deve inserir novamente
-		var answer int
-		var err error
+		timeout := make(chan bool, 1)
+		answerChan := make(chan int, 1)
 
-		for {
+		// Go routines para o timer e para entrada do usuário
+		go func() {
+			timer := time.NewTimer(time.Second * 15)
+			<-timer.C
+			timeout <- true
+		}()
+
+		go func() {
 			reader := bufio.NewReader(os.Stdin)
-			read, _ := reader.ReadString('\n')
+			for {
+				read, _ := reader.ReadString('\n')
+				answer, err := toInt(strings.TrimSpace(read))
 
-			answer, err = toInt(strings.TrimSpace(read))
-			if err != nil {
-				fmt.Println(err.Error())
-				continue
+				// Se for uma resposta válida, sai do loop e envia para o canal
+				if err == nil && answer >= 1 && answer <= len(question.Options) {
+					answerChan <- answer
+					return
+				}
+
+				// Se a resposta for inválida, avisa o jogador
+				fmt.Println("Erro: Insira uma opção válida!")
 			}
-			break
-		}
+		}()
 
-		if answer == question.Answer {
-			fmt.Println("Parabéns! Resposta correta.")
-			g.Points += 10
-			continue
+		// Espera até que um dos dois canais receba uma resposta: entrada do usuário ou timeout
+		select {
+		case answer := <-answerChan:
+			if answer == question.Answer {
+				fmt.Printf("\033[32mParabéns! Resposta correta.\033[0m\n")
+				g.Points += 10
+			} else {
+				fmt.Printf("\033[31mResposta incorreta!\033[0m\n")
+			}
+		case <-timeout:
+			fmt.Println("\033[31mTempo esgotado! Resposta não recebida.\033[0m")
+			return
 		}
-		fmt.Println("Resposta incorreta!")
-		break
 	}
 }
 
@@ -114,15 +161,14 @@ func toInt(str string) (int, error) {
 	if err != nil {
 		return 0, errors.New("insira um número válido")
 	}
-
 	return i, nil
 }
 
 func main() {
 	game := &GameState{}
-	go game.ProccessCSV()
 	game.Init()
+	game.ProccessCSV()
 	game.Run()
 
-	fmt.Printf("Fim de jogo! Você fez %d pontos\n", game.Points)
+	fmt.Printf("Fim de jogo! Você fez %d de %d pontos!", game.Points, len(game.Questions)*10)
 }
